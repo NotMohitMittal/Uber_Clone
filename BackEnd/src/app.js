@@ -37,13 +37,23 @@ app.use("/api/ride", rideRouter);
 
 // Production Setup
 if (process.env.NODE_ENV === "production") {
-  const __dirname = path.resolve();
+  const rootDir = path.resolve();
 
-  // Serve static files from the React app
-  app.use(express.static(path.join(__dirname, "FrontEnd", "dist")));
+  app.use(
+    express.static(
+      path.join(rootDir, "FrontEnd", "dist")
+    )
+  );
 
-  app.get((req, res) => {
-    res.sendFile(path.join(__dirname, "FrontEnd", "dist", "index.html"));
+  app.use((req, res) => {
+    res.sendFile(
+      path.join(
+        rootDir,
+        "FrontEnd",
+        "dist",
+        "index.html"
+      )
+    );
   });
 }
 
