@@ -22,8 +22,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Health Check
-app.get("/", (req, res) => {
+app.get("/api/health", (req, res) => {
   res.json({
     success: true,
     message: "Uber Clone API Running",
@@ -40,6 +39,7 @@ app.use("/api/ride", rideRouter);
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.resolve();
 
+  // Serve static files from the React app
   app.use(express.static(path.join(__dirname, "FrontEnd", "dist")));
 
   app.get((req, res) => {
