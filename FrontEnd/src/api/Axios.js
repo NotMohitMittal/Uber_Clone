@@ -1,0 +1,70 @@
+import axios from "axios";
+import { useAuthStore } from "../context/UserContext";
+
+export const AxiosAPI = axios.create({
+  baseURL: "http://localhost:3000/api",
+  withCredentials: true,
+});
+
+// ── Request interceptor ───────────────────────────────────────────────────────
+// Attaches the in-memory access token to every outgoing request.
+AxiosAPI.interceptors.request.use(
+  (config) => {
+    const token = useAuthStore.getState().accessToken;
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error),
+);
+
+// ── Response interceptor ──────────────────────────────────────────────────────
+// On a 401 the interceptor silently refreshes the token and retries the request.
+AxiosAPI.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+
+      try {
+        // Determine which refresh endpoint to hit based on the stored role.
+        // useAuthStore.getState() works outside React components.
+        const role = useAuthStore.getState().authUser?.role || "user";
+
+        // BUG FIX: both endpoints must be GET (captain was accidentally POST
+        // in the original routes file — now fixed in captain_routes.js).
+        const refreshUrl =
+          role === "captain"
+            ? "http://localhost:3000/api/captain/refresh-token"
+            : "http://localhost:3000/api/user/refresh-token";
+
+        const refreshResponse = await axios.get(refreshUrl, {
+          withCredentials: true,
+        });
+
+        // BUG FIX: captain rotateToken returns "newAccessToken" key,
+        // user rotateToken returns "accessToken" key — handle both.
+        const newAccessToken =
+          role === "captain"
+            ? refreshResponse.data.newAccessToken
+            : refreshResponse.data.accessToken;
+
+        // Persist the new token in Zustand
+        useAuthStore.getState().setAccessToken(newAccessToken);
+
+        // Retry the original failed request with the new token
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        return AxiosAPI(originalRequest);
+      } catch (refreshError) {
+        // Refresh token is also expired → force logout
+        useAuthStore.getState().clearAuth();
+        return Promise.reject(refreshError);
+      }
+    }
+
+    return Promise.reject(error);
+  },
+);
