@@ -35,15 +35,12 @@ app.use("/api/captain", captainRouter);
 app.use("/api/map", mapRouter);
 app.use("/api/ride", rideRouter);
 
-// Production Setup
 if (process.env.NODE_ENV === "production") {
-  const rootDir = path.resolve();
-
-  const distPath = path.join(process.cwd(), "FrontEnd", "dist");
+  const distPath = path.join(__dirname, "..", "FrontEnd", "dist");
 
   app.use(express.static(distPath));
 
-  app.use((req, res) => {
+  app.get((req, res) => {
     res.sendFile(path.join(distPath, "index.html"));
   });
 }
