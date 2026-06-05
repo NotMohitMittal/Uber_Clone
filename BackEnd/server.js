@@ -14,17 +14,17 @@ initializeSocket(server);
 connectDB();
 
 if (process.env.NODE_ENV === "production") {
-  // Use ".." to step out of the BackEnd folder and into the FrontEnd folder
   const frontendPath = path.join(__dirname, "..", "FrontEnd", "dist");
 
   app.use(express.static(frontendPath));
 
-  // ADD THE '*' HERE: Catch all non-API routes and hand them to React Router
-  app.get((req, res) => {
+  // Express 5 dropped the bare "*" wildcard — use a named splat param instead.
+  // "{*path}" matches every route that hasn't already been handled by the API.
+  app.get("/{*path}", (req, res) => {
     res.sendFile(path.join(frontendPath, "index.html"));
   });
 }
 
 server.listen(process.env.PORT, () => {
-  console.log("Server running");
+  console.log("Server running on port", process.env.PORT);
 });
