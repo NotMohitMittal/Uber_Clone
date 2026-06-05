@@ -9,24 +9,17 @@ import { useMapStore } from "../context/Map.context";
 export default function BookRide() {
   const navigate = useNavigate();
 
-  // --- States ---
   const [step, setStep] = useState(1);
   const [pickup, setPickup] = useState("");
   const [destination, setDestination] = useState("");
   const [vehicleType, setVehicleType] = useState("");
-
-  // Suggestion UI States
   const [activeField, setActiveField] = useState(null);
-  const [focusedIndex, setFocusedIndex] = useState(-1); // NEW: Tracks keyboard focus
+  const [focusedIndex, setFocusedIndex] = useState(-1);
 
-  // --- Global Stores ---
   const { ridePrice, farePrice, bookRide, userRideState, setUserRideState, resetRide } =
     useRideStore();
 
-  // Reset any stale ride state when the booking form mounts.
-  // This fixes the "must reload page between bookings" bug:
-  // after a ride completes the store still has userRideState="completed",
-  // which hides the form. Resetting on mount clears it cleanly.
+  // Reset stale ride state on mount
   useEffect(() => {
     if (userRideState === "completed" || userRideState === "") {
       resetRide();
@@ -37,16 +30,10 @@ export default function BookRide() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const {
-    suggestions,
-    fetchSuggestions,
-    clearSuggestions,
-    getDistance_Duration,
-    distance,
-    duration,
-  } = useMapStore();
 
-  // --- Dynamic Vehicle Data ---
+  const { suggestions, fetchSuggestions, clearSuggestions, getDistance_Duration } =
+    useMapStore();
+
   const vehicles = [
     {
       id: "car",
@@ -77,68 +64,62 @@ export default function BookRide() {
     },
   ];
 
-  // --- Input & Suggestion Handlers ---
   const handleInputChange = async (e, field) => {
     const val = e.target.value;
     if (field === "pickup") setPickup(val);
     else setDestination(val);
-
     setActiveField(field);
-    setFocusedIndex(-1); // Reset keyboard focus when typing
+    setFocusedIndex(-1);
     await fetchSuggestions(val);
   };
 
   const handleSuggestionClick = (suggestion) => {
     if (activeField === "pickup") setPickup(suggestion);
     else setDestination(suggestion);
-
     setActiveField(null);
     setFocusedIndex(-1);
     clearSuggestions();
   };
 
-  // NEW: Keyboard Navigation Handler
   const handleKeyDown = (e) => {
     if (!activeField || suggestions.length === 0) return;
-
     if (e.key === "ArrowDown") {
-      e.preventDefault(); // Prevents cursor from jumping
-      setFocusedIndex((prev) =>
-        prev < suggestions.length - 1 ? prev + 1 : prev,
-      );
+      e.preventDefault();
+      setFocusedIndex((prev) => Math.min(prev + 1, suggestions.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setFocusedIndex((prev) => (prev > 0 ? prev - 1 : prev));
+      setFocusedIndex((prev) => Math.max(prev - 1, 0));
     } else if (e.key === "Enter") {
-      e.preventDefault(); // CRITICAL: Prevents the form from submitting!
-      if (focusedIndex >= 0 && focusedIndex < suggestions.length) {
-        handleSuggestionClick(suggestions[focusedIndex]);
-      }
+      e.preventDefault();
+      if (focusedIndex >= 0) handleSuggestionClick(suggestions[focusedIndex]);
     } else if (e.key === "Escape") {
       setActiveField(null);
       setFocusedIndex(-1);
     }
   };
 
-  // --- Form Handlers ---
   const handleFindRides = async (e) => {
     e.preventDefault();
-
     if (!pickup.trim() || !destination.trim()) {
       alert("Please enter both pickup and destination locations.");
       return;
     }
 
-    // Step 1: get real distance & duration from the map service (Google Distance Matrix)
-    // getDistance_Duration stores the result in the map store as distance/duration
-    await getDistance_Duration(pickup, destination);
+    // BUG FIX: getDistance_Duration now RETURNS the values directly instead
+    // of relying on the store state (which would still be stale at this point
+    // due to React's async state batching).
+    const distanceData = await getDistance_Duration(pickup, destination);
 
-    // distance is in metres, duration in seconds — convert for the fare API
-    const distanceKm  = distance  ? distance  / 1000 : 10;  // fallback 10km
-    const durationMin = duration  ? duration  / 60   : 20;  // fallback 20min
+    if (!distanceData) {
+      alert("Could not calculate route. Please try again.");
+      return;
+    }
 
-    // Step 2: fetch real fares for all vehicle types
-    const result = await ridePrice({ distance: distanceKm, duration: durationMin });
+    // Pass raw metres & seconds — the backend /ride/ride-fare converts to km/min
+    const result = await ridePrice({
+      distance: distanceData.distanceM,
+      duration: distanceData.durationS,
+    });
 
     if (result && result.success) {
       setStep(2);
@@ -150,38 +131,28 @@ export default function BookRide() {
   const handleFinalSubmit = async () => {
     if (!vehicleType) return alert("Please select a vehicle type.");
     const ridePayload = { pickup, destination, vehicleType };
-
     try {
       const result = await bookRide(ridePayload);
-
       if (result.success) {
         setUserRideState("searching");
         navigate("/active-ride");
       } else {
         alert(result.message || "Failed to book ride.");
       }
-    } catch (error) {
+    } catch {
       alert("A network error occurred.");
     }
   };
 
   const slideVariants = {
-    initial: (direction) => ({ x: direction > 0 ? 50 : -50, opacity: 0 }),
-    animate: {
-      x: 0,
-      opacity: 1,
-      transition: { duration: 0.3, ease: "easeOut" },
-    },
-    exit: (direction) => ({
-      x: direction > 0 ? -50 : 50,
-      opacity: 0,
-      transition: { duration: 0.2, ease: "easeIn" },
-    }),
+    initial: (d) => ({ x: d > 0 ? 50 : -50, opacity: 0 }),
+    animate: { x: 0, opacity: 1, transition: { duration: 0.3, ease: "easeOut" } },
+    exit: (d) => ({ x: d > 0 ? -50 : 50, opacity: 0, transition: { duration: 0.2, ease: "easeIn" } }),
   };
 
   return (
     <div className="w-full max-w-md mx-auto relative flex flex-col gap-4">
-      {/* THE ACTIVE RIDE BANNER */}
+      {/* Active Ride Banner */}
       {(userRideState === "searching" || userRideState === "confirmed") && (
         <div
           onClick={() => navigate("/active-ride")}
@@ -189,47 +160,30 @@ export default function BookRide() {
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400">
-              <Navigation
-                size={20}
-                className={userRideState === "searching" ? "animate-pulse" : ""}
-              />
+              <Navigation size={20} className={userRideState === "searching" ? "animate-pulse" : ""} />
             </div>
             <div>
               <h4 className="text-white font-bold text-sm">
-                {userRideState === "searching"
-                  ? "Finding your captain..."
-                  : "Captain is on the way!"}
+                {userRideState === "searching" ? "Finding your captain..." : "Captain is on the way!"}
               </h4>
-              <p className="text-indigo-300 text-xs mt-0.5">
-                Tap to view live tracking
-              </p>
+              <p className="text-indigo-300 text-xs mt-0.5">Tap to view live tracking</p>
             </div>
           </div>
           <ArrowLeft size={18} className="text-indigo-400 rotate-180" />
         </div>
       )}
 
-      {/* THE BOOKING FORM */}
+      {/* Booking Form */}
       {(!userRideState || userRideState === "booking") && (
         <div className="bg-[#1a1d27] border border-white/[0.07] rounded-2xl p-5 overflow-visible shadow-2xl relative z-20">
           <AnimatePresence mode="wait" custom={step === 2 ? 1 : -1}>
-            {/* --- STEP 1: LOCATIONS --- */}
+            {/* STEP 1 */}
             {step === 1 && (
-              <motion.div
-                key="step1"
-                custom={-1}
-                variants={slideVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-              >
-                <h3 className="text-xl font-bold text-white mb-4">
-                  Find a Ride
-                </h3>
-
+              <motion.div key="step1" custom={-1} variants={slideVariants} initial="initial" animate="animate" exit="exit">
+                <h3 className="text-xl font-bold text-white mb-4">Find a Ride</h3>
                 <form onSubmit={handleFindRides}>
                   <div className="space-y-3 mb-6 relative">
-                    {/* --- PICKUP INPUT --- */}
+                    {/* Pickup */}
                     <div className="relative">
                       <div className="flex items-center bg-[#0f1117] rounded-xl p-3 gap-3 border border-white/5 focus-within:border-indigo-500/50 transition-colors">
                         <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 shrink-0" />
@@ -238,43 +192,30 @@ export default function BookRide() {
                           value={pickup}
                           onChange={(e) => handleInputChange(e, "pickup")}
                           onFocus={() => setActiveField("pickup")}
-                          onKeyDown={handleKeyDown} // NEW: Listen for keyboard nav
+                          onKeyDown={handleKeyDown}
                           className="flex-1 bg-transparent text-sm text-white placeholder-slate-500 outline-none"
                           placeholder="Pickup location"
                           required
-                          autoComplete="off" // Prevents browser defaults from overlapping
+                          autoComplete="off"
                         />
                       </div>
-
-                      {/* PICKUP SUGGESTIONS DROPDOWN */}
                       {activeField === "pickup" && suggestions.length > 0 && (
-                        // FIXED: z-[999], max-h-52, and overflow-y-auto
-                        <div className="absolute top-full left-0 right-0 mt-2 bg-[#222635] border border-white/10 rounded-xl overflow-y-auto max-h-52 z-999 shadow-2xl">
+                        <div className="absolute top-full left-0 right-0 mt-2 bg-[#222635] border border-white/10 rounded-xl overflow-y-auto max-h-52 z-[999] shadow-2xl">
                           {suggestions.map((suggestion, idx) => (
                             <div
                               key={idx}
                               onClick={() => handleSuggestionClick(suggestion)}
-                              // FIXED: Highlight based on keyboard focus state
-                              className={`p-3 border-b border-white/5 cursor-pointer flex items-center gap-3 transition-colors ${
-                                idx === focusedIndex
-                                  ? "bg-white/10"
-                                  : "hover:bg-white/5"
-                              }`}
+                              className={`p-3 border-b border-white/5 cursor-pointer flex items-center gap-3 transition-colors ${idx === focusedIndex ? "bg-white/10" : "hover:bg-white/5"}`}
                             >
-                              <MapPin
-                                size={16}
-                                className="text-indigo-400 shrink-0"
-                              />
-                              <span className="text-sm text-slate-200 truncate">
-                                {suggestion}
-                              </span>
+                              <MapPin size={16} className="text-indigo-400 shrink-0" />
+                              <span className="text-sm text-slate-200 truncate">{suggestion}</span>
                             </div>
                           ))}
                         </div>
                       )}
                     </div>
 
-                    {/* --- DESTINATION INPUT --- */}
+                    {/* Destination */}
                     <div className="relative">
                       <div className="flex items-center bg-[#0f1117] rounded-xl p-3 gap-3 border border-white/5 focus-within:border-purple-500/50 transition-colors">
                         <div className="w-2.5 h-2.5 rounded-sm bg-purple-500 shrink-0" />
@@ -283,43 +224,27 @@ export default function BookRide() {
                           value={destination}
                           onChange={(e) => handleInputChange(e, "destination")}
                           onFocus={() => setActiveField("destination")}
-                          onKeyDown={handleKeyDown} // NEW: Listen for keyboard nav
+                          onKeyDown={handleKeyDown}
                           className="flex-1 bg-transparent text-sm text-white placeholder-slate-500 outline-none"
                           placeholder="Drop location"
                           required
-                          autoComplete="off" // Prevents browser defaults from overlapping
+                          autoComplete="off"
                         />
                       </div>
-
-                      {/* DESTINATION SUGGESTIONS DROPDOWN */}
-                      {activeField === "destination" &&
-                        suggestions.length > 0 && (
-                          // FIXED: z-[999], max-h-52, and overflow-y-auto
-                          <div className="absolute top-full left-0 right-0 mt-2 bg-[#222635] border border-white/10 rounded-xl overflow-y-auto max-h-52 z-999 shadow-2xl">
-                            {suggestions.map((suggestion, idx) => (
-                              <div
-                                key={idx}
-                                onClick={() =>
-                                  handleSuggestionClick(suggestion)
-                                }
-                                // FIXED: Highlight based on keyboard focus state
-                                className={`p-3 border-b border-white/5 cursor-pointer flex items-center gap-3 transition-colors ${
-                                  idx === focusedIndex
-                                    ? "bg-white/10"
-                                    : "hover:bg-white/5"
-                                }`}
-                              >
-                                <MapPin
-                                  size={16}
-                                  className="text-purple-400 shrink-0"
-                                />
-                                <span className="text-sm text-slate-200 truncate">
-                                  {suggestion}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                      {activeField === "destination" && suggestions.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 mt-2 bg-[#222635] border border-white/10 rounded-xl overflow-y-auto max-h-52 z-[999] shadow-2xl">
+                          {suggestions.map((suggestion, idx) => (
+                            <div
+                              key={idx}
+                              onClick={() => handleSuggestionClick(suggestion)}
+                              className={`p-3 border-b border-white/5 cursor-pointer flex items-center gap-3 transition-colors ${idx === focusedIndex ? "bg-white/10" : "hover:bg-white/5"}`}
+                            >
+                              <MapPin size={16} className="text-purple-400 shrink-0" />
+                              <span className="text-sm text-slate-200 truncate">{suggestion}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -333,28 +258,14 @@ export default function BookRide() {
               </motion.div>
             )}
 
-            {/* --- STEP 2: VEHICLE SELECTION --- */}
+            {/* STEP 2 */}
             {step === 2 && (
-              <motion.div
-                key="step2"
-                custom={1}
-                variants={slideVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="flex flex-col h-full"
-              >
-                {/* ... (Step 2 content stays exactly the same) ... */}
+              <motion.div key="step2" custom={1} variants={slideVariants} initial="initial" animate="animate" exit="exit" className="flex flex-col h-full">
                 <div className="flex items-center gap-3 mb-5">
-                  <button
-                    onClick={() => setStep(1)}
-                    className="p-1.5 rounded-full hover:bg-white/10 text-white transition-colors"
-                  >
+                  <button onClick={() => setStep(1)} className="p-1.5 rounded-full hover:bg-white/10 text-white transition-colors">
                     <ArrowLeft size={20} />
                   </button>
-                  <h3 className="text-xl font-bold text-white">
-                    Choose a Vehicle
-                  </h3>
+                  <h3 className="text-xl font-bold text-white">Choose a Vehicle</h3>
                 </div>
 
                 <div className="space-y-3 mb-6">
@@ -371,24 +282,15 @@ export default function BookRide() {
                       <div className="text-4xl mr-4">{v.icon}</div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
-                          <h4 className="text-base font-bold text-white">
-                            {v.name}
-                          </h4>
+                          <h4 className="text-base font-bold text-white">{v.name}</h4>
                           <div className="flex items-center gap-0.5 text-xs text-slate-300 bg-white/10 px-1.5 py-0.5 rounded-md">
-                            <User size={12} />
-                            {v.capacity}
+                            <User size={12} />{v.capacity}
                           </div>
                         </div>
-                        <p className="text-xs font-medium text-green-400 mt-0.5">
-                          {v.time}
-                        </p>
-                        <p className="text-[11px] text-slate-400 mt-0.5 leading-tight">
-                          {v.desc}
-                        </p>
+                        <p className="text-xs font-medium text-green-400 mt-0.5">{v.time}</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5 leading-tight">{v.desc}</p>
                       </div>
-                      <div className="text-lg font-bold text-white tracking-tight">
-                        {v.price}
-                      </div>
+                      <div className="text-lg font-bold text-white tracking-tight">{v.price}</div>
                     </div>
                   ))}
                 </div>
@@ -399,10 +301,7 @@ export default function BookRide() {
                   className="w-full py-3.5 rounded-xl bg-linear-to-r from-indigo-600 to-purple-600 text-white text-sm font-bold hover:from-indigo-500 hover:to-purple-500 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(168,85,247,0.15)]"
                 >
                   <Zap size={16} className="text-indigo-200" />
-                  Confirm{" "}
-                  {vehicleType
-                    ? vehicles.find((v) => v.id === vehicleType)?.name
-                    : "Booking"}
+                  Confirm {vehicleType ? vehicles.find((v) => v.id === vehicleType)?.name : "Booking"}
                 </button>
               </motion.div>
             )}

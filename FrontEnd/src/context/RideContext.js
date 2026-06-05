@@ -2,9 +2,6 @@ import { create } from "zustand";
 import { AxiosAPI } from "../api/Axios";
 
 // ─── Persistence helpers ──────────────────────────────────────────────────────
-// sessionStorage: survives page refresh, cleared when the tab/browser closes.
-// This is intentionally NOT localStorage — we don't want stale ride state
-// hanging around across sessions.
 const RIDE_KEY = "uber_active_ride";
 
 const saveRideState = (state) => {
@@ -12,7 +9,6 @@ const saveRideState = (state) => {
     sessionStorage.setItem(RIDE_KEY, JSON.stringify(state));
   } catch {}
 };
-
 const loadRideState = () => {
   try {
     const raw = sessionStorage.getItem(RIDE_KEY);
@@ -21,7 +17,6 @@ const loadRideState = () => {
     return null;
   }
 };
-
 const clearRideState = () => {
   try {
     sessionStorage.removeItem(RIDE_KEY);
@@ -31,89 +26,84 @@ const clearRideState = () => {
 // ─── Store ────────────────────────────────────────────────────────────────────
 const persisted = loadRideState();
 
+// If the captain refreshes while a ride is just "incoming", drop it back to idle
+// (because the timer would have expired anyway). Otherwise, keep their active state.
+const initCaptainState =
+  persisted?.captainRideState === "incoming"
+    ? "idle"
+    : (persisted?.captainRideState ?? "idle");
+
 export const useRideStore = create((set, get) => ({
   isBookingRide: false,
 
-  // Rehydrate from sessionStorage on module load so a page refresh doesn't
-  // wipe an in-progress ride.
-  rideDetails:     persisted?.rideDetails    ?? null,
-  userRideState:   persisted?.userRideState  ?? "",
-  farePrice:       persisted?.farePrice      ?? null,
+  rideDetails: persisted?.rideDetails ?? null,
+  userRideState: persisted?.userRideState ?? "",
+  captainRideState: initCaptainState,
+  farePrice: persisted?.farePrice ?? null,
   captainLocation: persisted?.captainLocation ?? null,
-  userLocation:    null,   // live GPS — not persisted (re-acquired every mount)
+  captainEta: persisted?.captainEta ?? null,
+  userLocation: null,
 
   // ── Setters ───────────────────────────────────────────────────────────────
-
   setUserRideState: (newState) => {
     set({ userRideState: newState });
-    // Keep sessionStorage in sync after every state transition
     const s = get();
-    saveRideState({
-      rideDetails:     s.rideDetails,
-      userRideState:   newState,
-      farePrice:       s.farePrice,
-      captainLocation: s.captainLocation,
-    });
+    saveRideState({ ...s, userRideState: newState });
+  },
+
+  setCaptainRideState: (newState) => {
+    set({ captainRideState: newState });
+    const s = get();
+    saveRideState({ ...s, captainRideState: newState });
   },
 
   setRideDetails: (ride) => {
     set({ rideDetails: ride });
     const s = get();
-    saveRideState({
-      rideDetails:     ride,
-      userRideState:   s.userRideState,
-      farePrice:       s.farePrice,
-      captainLocation: s.captainLocation,
-    });
+    saveRideState({ ...s, rideDetails: ride });
   },
 
   setCaptainLocation: (loc) => {
     set({ captainLocation: loc });
-    // Persist captain location so the map doesn't jump on refresh
     const s = get();
-    saveRideState({
-      rideDetails:     s.rideDetails,
-      userRideState:   s.userRideState,
-      farePrice:       s.farePrice,
-      captainLocation: loc,
-    });
+    saveRideState({ ...s, captainLocation: loc });
+  },
+
+  setCaptainEta: (eta) => {
+    set({ captainEta: eta });
+    const s = get();
+    saveRideState({ ...s, captainEta: eta });
   },
 
   setUserLocation: (loc) => {
-    // User location is live GPS — never persisted to avoid stale coords
     set({ userLocation: loc });
   },
 
   setFarePrice: (price) => {
     set({ farePrice: price });
     const s = get();
-    saveRideState({
-      rideDetails:     s.rideDetails,
-      userRideState:   s.userRideState,
-      farePrice:       price,
-      captainLocation: s.captainLocation,
-    });
+    saveRideState({ ...s, farePrice: price });
   },
 
-  // ── Full reset — call after trip completion or cancellation ──────────────
+  // ── Full reset ────────────────────────────────────────────────────────────
   resetRide: () => {
     clearRideState();
     set({
-      rideDetails:     null,
-      userRideState:   "",
-      farePrice:       null,
+      rideDetails: null,
+      userRideState: "",
+      captainRideState: "idle",
+      farePrice: null,
       captainLocation: null,
-      isBookingRide:   false,
+      captainEta: null,
+      isBookingRide: false,
     });
   },
 
-  // ── API actions ───────────────────────────────────────────────────────────
-
+  // ── APIs ──────────────────────────────────────────────────────────────────
   bookRide: async (rideData) => {
     try {
       set({ isBookingRide: true });
       const res = await AxiosAPI.post("/ride/create-ride", rideData);
-      // Persist immediately so a mid-booking refresh recovers gracefully
       get().setRideDetails(res.data.ride);
       return { success: true };
     } catch (error) {

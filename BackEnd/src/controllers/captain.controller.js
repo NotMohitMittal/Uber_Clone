@@ -101,7 +101,7 @@ const verifyEmail = async (req, res) => {
     const captain = await captainModel.findByIdAndUpdate(
       otpDoc.user,
       { verified: true },
-      { new: true },
+      { returnDocument: after },
     );
 
     await otpModel.deleteMany({ email });

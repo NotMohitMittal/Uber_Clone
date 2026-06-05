@@ -8,44 +8,44 @@ const {
 } = require("../services/map.service");
 const { generateOtp, sendRideOtpEmail } = require("../utils/util");
 
-const getFare = (distance, duration) => {
+// ── getFare ───────────────────────────────────────────────────────────────────
+// Expects distanceKm (kilometres) and durationMin (minutes).
+// Returns fares for all vehicle types.
+const getFare = (distanceKm, durationMin) => {
   const fareConfig = {
-    car: { baseFare: 60, perKm: 18, perMinute: 2.5 },
-    auto: { baseFare: 35, perKm: 11, perMinute: 1.5 },
-    motorcycle: { baseFare: 25, perKm: 8, perMinute: 1 },
+    car:        { baseFare: 60,  perKm: 18, perMinute: 2.5 },
+    auto:       { baseFare: 35,  perKm: 11, perMinute: 1.5 },
+    motorcycle: { baseFare: 25,  perKm: 8,  perMinute: 1   },
   };
 
   const calculatedFares = {};
 
-  console.log( "From get-fare : ", distance, duration)
-
-  // SO THE GOOGLE MAPS SENDS THE LOCATION/DISTANCE FROM THE RIDER TO DRIVER IN METERS AND SECONDS SO LATER -
-  // IN THE FUTURE YOU HAVE TO FIX THESE BELOW DETAILS CAUSE THEY ARE IN "KM" & "MINUTES" DIRECTLY.
-
   for (const vehicle in fareConfig) {
     const config = fareConfig[vehicle];
     const totalFare =
-      config.baseFare + distance * config.perKm + duration * config.perMinute;
+      config.baseFare +
+      distanceKm  * config.perKm +
+      durationMin * config.perMinute;
     calculatedFares[vehicle] = Math.round(totalFare);
   }
 
   return calculatedFares;
 };
 
+// ── createRide ────────────────────────────────────────────────────────────────
 const createRide = async (req, res) => {
   const { pickup, destination, vehicleType } = req.body;
 
   try {
-    // Google Distance Matrix returns distance in metres and duration in seconds.
-    // getFare() expects km and minutes, so we convert here.
+    // Google Distance Matrix → metres & seconds → convert to km & minutes
     const distanceTimeData = await getDistanceTime(pickup, destination);
-    const distanceKm = distanceTimeData.distance.value / 1000; // m  → km
-    const durationMin = distanceTimeData.duration.value / 60; // s  → min
+    const distanceKm  = distanceTimeData.distance.value / 1000; // m  → km
+    const durationMin = distanceTimeData.duration.value / 60;   // s  → min
 
     const allFares = getFare(distanceKm, durationMin);
-    const fare = allFares[vehicleType];
+    const fare     = allFares[vehicleType];
 
-    console.log(fare);
+    console.log("createRide fares:", allFares, "selected:", vehicleType, fare);
 
     if (!fare) {
       return res.status(400).json({ message: "Invalid vehicle type" });
@@ -63,26 +63,22 @@ const createRide = async (req, res) => {
       pickup,
       destination,
       fare,
-      distance: distanceTimeData.distance.value,
-      duration: distanceTimeData.duration.value,
+      distance: distanceTimeData.distance.value, // store raw metres
+      duration: distanceTimeData.duration.value, // store raw seconds
       otp,
     });
 
-
-
-
     const pickupCoordinates = await getAddressCoordinate(pickup);
-    const captainsInRange = await getCaptainsInTheRadius(
+    const captainsInRange   = await getCaptainsInTheRadius(
       pickupCoordinates.lat,
       pickupCoordinates.lng,
-      1000, // radius in kms
+      1000, // radius in km
     );
 
-    console.log( "Captain in Range: ", captainsInRange);
+    console.log("Captains in range:", captainsInRange.length);
 
     const rideWithUser = await rideModel.findById(ride._id).populate("user");
 
-    // 2. Emit the 'new-ride' event to every captain in radius!
     captainsInRange.forEach((captain) => {
       if (captain.socketId) {
         sendMessageToSocketId(captain.socketId, {
@@ -100,46 +96,53 @@ const createRide = async (req, res) => {
     });
   } catch (error) {
     console.error("Ride creation error:", error);
-    res.status(500).json({
-      message: "Database error",
-    });
+    res.status(500).json({ message: "Database error" });
   }
 };
 
+// ── getRideFare ───────────────────────────────────────────────────────────────
+// Query params: distance (metres), duration (seconds)
+// Converts to km / minutes before calling getFare so the math is always correct.
 const getRideFare = async (req, res) => {
   const { distance, duration } = req.query;
 
-  const farePrice = getFare(distance, duration);
+  // The client sends raw Google Maps values (metres & seconds).
+  // Convert here so getFare always receives km and minutes.
+  const distanceKm  = parseFloat(distance) / 1000;
+  const durationMin = parseFloat(duration) / 60;
 
-  console.log(farePrice);
+  console.log("getRideFare input (raw):", distance, duration);
+  console.log("getRideFare converted:", distanceKm, "km /", durationMin, "min");
+
+  const farePrice = getFare(distanceKm, durationMin);
+
+  console.log("farePrice:", farePrice);
+
   return res.status(200).json({
     message: "Ride fare fetched",
     farePrice,
   });
 };
 
-// ── Accept Ride ──────────────────────────────────────────────────────────────
-// Called by captain when they tap Accept. Marks ride "accepted" and saves captain.
+// ── acceptRide ────────────────────────────────────────────────────────────────
 const acceptRide = async (req, res) => {
   const { rideId } = req.body;
   if (!rideId) return res.status(400).json({ message: "rideId is required" });
 
   try {
-    const captainId = req.user.id; // captain is authenticated
+    const captainId = req.user.id;
 
     const ride = await rideModel
       .findByIdAndUpdate(
         rideId,
         { status: "accepted", captain: captainId },
-        { new: true },
+        { returnDocument: after },
       )
       .populate("user")
       .populate("captain");
 
     if (!ride) return res.status(404).json({ message: "Ride not found" });
 
-    // Notify user that their ride was accepted (socket emit from frontend handles this,
-    // but we also emit here so the user's app updates if the tab is open)
     if (ride.user?.socketId) {
       sendMessageToSocketId(ride.user.socketId, {
         event: "ride-accepted",
@@ -154,15 +157,14 @@ const acceptRide = async (req, res) => {
   }
 };
 
-// ── Start Trip ────────────────────────────────────────────────────────────────
-// Called when captain picks up the passenger and starts the trip.
+// ── startTrip ─────────────────────────────────────────────────────────────────
 const startTrip = async (req, res) => {
   const { rideId } = req.body;
   if (!rideId) return res.status(400).json({ message: "rideId is required" });
 
   try {
     const ride = await rideModel
-      .findByIdAndUpdate(rideId, { status: "ongoing" }, { new: true })
+      .findByIdAndUpdate(rideId, { status: "ongoing" }, { returnDocument: after })
       .populate("user");
 
     if (!ride) return res.status(404).json({ message: "Ride not found" });
@@ -181,7 +183,7 @@ const startTrip = async (req, res) => {
   }
 };
 
-
+// ── completeTrip ──────────────────────────────────────────────────────────────
 const completeTrip = async (req, res) => {
   const { rideId } = req.body;
   if (!rideId) return res.status(400).json({ message: "rideId is required" });

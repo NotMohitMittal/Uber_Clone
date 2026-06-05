@@ -9,11 +9,14 @@ export const useSocketStore = create((set, get) => ({
     const currentSocket = get().socket;
     if (currentSocket?.connected) return;
 
-    const socket = io(import.meta.env.VITE_SOCKET_URL || "http://localhost:3000", {
-      transports: ["websocket"],
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-    });
+    const socket = io(
+      import.meta.env.VITE_SOCKET_URL || "http://localhost:3000",
+      {
+        transports: ["websocket"],
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+      },
+    );
 
     // ── JOIN ─────────────────────────────────────────────────────────────────
     // Called both on initial connect AND on every reconnect (e.g. after a
@@ -25,15 +28,18 @@ export const useSocketStore = create((set, get) => ({
         userType: authUser.role || "user",
       });
 
-      // Re-join the active ride room if one was in progress when the page
-      // was refreshed. The server should have a "rejoin_ride" event that puts
-      // this socket back into the ride-specific room.
-      const { rideDetails, userRideState } = useRideStore.getState();
+      // Grab the captain's state too!
+      const { rideDetails, userRideState, captainRideState } =
+        useRideStore.getState();
+
+      // If ANY user or captain is mid-ride, automatically rejoin the tracking room!
       if (
         rideDetails?._id &&
         (userRideState === "searching" ||
           userRideState === "confirmed" ||
-          userRideState === "active")
+          userRideState === "active" ||
+          captainRideState === "accepted" ||
+          captainRideState === "trip_active")
       ) {
         socket.emit("rejoin_ride", {
           rideId: rideDetails._id,
