@@ -2,6 +2,14 @@ import { create } from "zustand";
 import { io } from "socket.io-client";
 import { useRideStore } from "./RideContext";
 
+// In production on Render, frontend and backend share the same origin.
+// socket.io-client connects to window.location.origin when no URL is given,
+// which is exactly what we want.
+// In local dev, set VITE_SOCKET_URL=http://localhost:3000 in FrontEnd/.env.local
+const SOCKET_URL =
+  import.meta.env.VITE_SOCKET_URL ||
+  (typeof window !== "undefined" ? window.location.origin : "");
+
 export const useSocketStore = create((set, get) => ({
   socket: null,
 
@@ -9,30 +17,25 @@ export const useSocketStore = create((set, get) => ({
     const currentSocket = get().socket;
     if (currentSocket?.connected) return;
 
-    const socket = io(
-      import.meta.env.VITE_SOCKET_URL || "http://localhost:3000",
-      {
-        transports: ["websocket"],
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-      },
-    );
+    const socket = io(SOCKET_URL, {
+      // Allow both websocket and polling so Render's proxy doesn't block it.
+      // Render's infrastructure can sometimes drop raw websocket upgrades;
+      // starting with polling then upgrading is the safest approach.
+      transports: ["websocket", "polling"],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      withCredentials: true,
+    });
 
-    // ── JOIN ─────────────────────────────────────────────────────────────────
-    // Called both on initial connect AND on every reconnect (e.g. after a
-    // page refresh). This re-registers the captain/user's socketId server-side
-    // so they keep receiving ride events.
     const joinServer = () => {
       socket.emit("join", {
         userId: authUser._id,
         userType: authUser.role || "user",
       });
 
-      // Grab the captain's state too!
       const { rideDetails, userRideState, captainRideState } =
         useRideStore.getState();
 
-      // If ANY user or captain is mid-ride, automatically rejoin the tracking room!
       if (
         rideDetails?._id &&
         (userRideState === "searching" ||
@@ -50,39 +53,28 @@ export const useSocketStore = create((set, get) => ({
     };
 
     socket.on("connect", joinServer);
-
-    // socket.io fires "reconnect" after a dropped connection is restored.
-    // Re-join so we don't miss any in-flight events.
     socket.on("reconnect", joinServer);
 
-    // ── INCOMING RIDE REQUEST (captain side) ─────────────────────────────────
-    // Payload: the full populated ride object from ride.controller.createRide
-    socket.on("new-ride", (rideData) => {
-      // Handled by captain dashboard component (it subscribes to the socket
-      // directly via useEffect). We expose the socket so components can use it.
+    socket.on("new-ride", () => {
+      // Handled directly by CaptainDashboard via its own useEffect listener.
     });
 
-    // ── RIDE ACCEPTED by captain (user side) ─────────────────────────────────
     socket.on("ride-accepted", (rideData) => {
       const { setRideDetails, setUserRideState } = useRideStore.getState();
       setRideDetails(rideData);
       setUserRideState("confirmed");
     });
 
-    // ── CAPTAIN REAL-TIME LOCATION ────────────────────────────────────────────
-    // Payload: { rideId, location: { type:"Point", coordinates:[lng, lat] }, timestamp }
     socket.on("captain_location_update", ({ location }) => {
       if (!location?.coordinates) return;
       const [lng, lat] = location.coordinates;
       useRideStore.getState().setCaptainLocation({ lat, lng });
     });
 
-    // ── TRIP STARTED ──────────────────────────────────────────────────────────
     socket.on("trip-started", () => {
       useRideStore.getState().setUserRideState("active");
     });
 
-    // ── TRIP COMPLETED ────────────────────────────────────────────────────────
     socket.on("trip-completed", () => {
       useRideStore.getState().setUserRideState("completed");
       setTimeout(() => {
@@ -105,6 +97,5 @@ export const useSocketStore = create((set, get) => ({
     }
   },
 
-  // Convenience getter so components don't need to import the full store
   getSocket: () => get().socket,
 }));
