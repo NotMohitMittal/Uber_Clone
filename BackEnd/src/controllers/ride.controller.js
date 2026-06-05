@@ -136,7 +136,7 @@ const acceptRide = async (req, res) => {
       .findByIdAndUpdate(
         rideId,
         { status: "accepted", captain: captainId },
-        { returnDocument: after },
+        { returnDocument: "after" },
       )
       .populate("user")
       .populate("captain");
@@ -164,7 +164,7 @@ const startTrip = async (req, res) => {
 
   try {
     const ride = await rideModel
-      .findByIdAndUpdate(rideId, { status: "ongoing" }, { returnDocument: after })
+      .findByIdAndUpdate(rideId, { status: "ongoing" }, { returnDocument: "after" })
       .populate("user");
 
     if (!ride) return res.status(404).json({ message: "Ride not found" });
