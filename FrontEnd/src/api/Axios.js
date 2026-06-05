@@ -2,7 +2,9 @@ import axios from "axios";
 import { useAuthStore } from "../context/UserContext";
 
 export const AxiosAPI = axios.create({
-  baseURL: "http://localhost:3000/api",
+  baseURL: import.meta.env.MODE === "production" 
+    ? "/api" 
+    : "http://localhost:3000/api",
   withCredentials: true,
 });
 
