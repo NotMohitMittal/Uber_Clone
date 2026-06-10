@@ -1,374 +1,303 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
-  Eye,
-  EyeOff,
-  User,
-  Mail,
-  Lock,
-  Sun,
-  Moon,
-  CarFront,
-  Palette,
-  Hash,
-  Users,
-  LayoutTemplate,
-  ShieldCheck,
+  Eye, EyeOff, User, Mail, Lock, CarFront,
+  Palette, Hash, Users, ShieldCheck, Zap,
+  ArrowRight, Navigation, Star, Clock,
 } from "lucide-react";
 import { useAuthStore } from "../context/UserContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import toast from "react-hot-toast";
 
-export default function MultiRoleRegistration() {
-  const [isDark, setIsDark] = useState(false);
+// ── Field wrapper ─────────────────────────────────────────────────────────────
+function Field({ label, icon: Icon, children }) {
+  return (
+    <div className="space-y-1.5 w-full">
+      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{label}</label>
+      <div className="relative">
+        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+          <Icon size={14} className="text-indigo-400/70" />
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const INPUT =
+  "w-full pl-10 pr-4 py-3 rounded-xl bg-[#0d1018] border border-white/[0.07] text-sm text-white placeholder-slate-700 outline-none transition-all duration-200 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/10 hover:border-white/[0.12]";
+
+const SELECT = INPUT + " appearance-none cursor-pointer";
+
+// ── Left panel trust signals ──────────────────────────────────────────────────
+const TRUST = [
+  { icon: Navigation, color: "text-indigo-400", bg: "bg-indigo-500/10", text: "Real-time GPS tracking on every trip" },
+  { icon: ShieldCheck, color: "text-emerald-400", bg: "bg-emerald-500/10", text: "OTP-verified pickups for your safety" },
+  { icon: Star, color: "text-amber-400",  bg: "bg-amber-500/10",  text: "Rated captains — quality guaranteed" },
+  { icon: Clock, color: "text-purple-400", bg: "bg-purple-500/10", text: "Matched to a captain in under 30 s" },
+];
+
+export default function RegistrationPage() {
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole] = useState("user"); // 'user' or 'captain'
-
-  const { register } = useAuthStore();
-
-  const navigate = useNavigate();
+  const [role, setRole]                 = useState("user");
+  const [loading, setLoading]           = useState(false);
+  const { register }                    = useAuthStore();
+  const navigate                        = useNavigate();
 
   const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    password: "",
-    // Captain specific fields
-    vehicleType: "car",
-    color: "",
-    plate: "",
-    capacity: 1,
+    firstName: "", lastName: "", email: "", password: "",
+    vehicleType: "car", color: "", plate: "", capacity: 1,
   });
-
-  // Handle global dark mode toggle
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [isDark]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData((p) => ({ ...p, [name]: value }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    // Prepare payload based on role
+    setLoading(true);
     const payload = {
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      email: formData.email,
-      password: formData.password,
+      firstName: formData.firstName, lastName: formData.lastName,
+      email: formData.email, password: formData.password,
     };
-
     if (role === "captain") {
       Object.assign(payload, {
-        vehicleType: formData.vehicleType,
-        color: formData.color,
-        plate: formData.plate,
-        capacity: Number(formData.capacity),
+        vehicleType: formData.vehicleType, color: formData.color,
+        plate: formData.plate, capacity: Number(formData.capacity),
       });
     }
-
     const result = await register(payload, role);
-
+    setLoading(false);
     if (result.success) {
       toast.success("Registered successfully");
-
       navigate("/OTP-verification");
     } else {
-      toast.error(result.message || "Invalid credentials");
+      toast.error(result.message || "Registration failed");
     }
   };
 
   return (
-    <div
-      className={`min-h-screen flex items-center justify-center p-4 py-12 transition-colors duration-500 bg-linear-to-br from-blue-50 via-purple-50 to-purple-100 dark:from-slate-950 dark:via-indigo-950 dark:to-slate-900 ${isDark ? "dark" : ""}`}
-    >
-      <div className="relative w-full max-w-xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl rounded-3xl shadow-2xl p-8 transition-colors duration-300 border border-purple-100 dark:border-slate-700">
-        {/* Theme Toggle Button */}
-        <button
-          onClick={() => setIsDark(!isDark)}
-          className="absolute top-6 right-6 p-2 rounded-full bg-purple-50 dark:bg-slate-700 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500"
-        >
-          {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-        </button>
+    <div className="min-h-screen bg-[#090c12] flex">
 
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="flex justify-center mb-4">
-            <div className="p-3 bg-linear-to-br from-blue-500 to-purple-600 rounded-xl text-white shadow-lg">
-              <LayoutTemplate className="h-6 w-6" />
-            </div>
-          </div>
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-            Join UBER
-          </h2>
-          <p className="text-purple-600/80 dark:text-purple-300/80 mt-2 text-sm font-medium">
-            Create an account to get started.
-          </p>
+      {/* ══ LEFT PANEL — branding + trust signals ══════════════════════════════ */}
+      <div className="hidden lg:flex flex-col justify-between w-[420px] shrink-0 relative overflow-hidden bg-[#0d1018] border-r border-white/[0.06] p-10">
+
+        {/* Ambient blobs */}
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -top-32 -left-32 w-80 h-80 rounded-full bg-indigo-600/15 blur-[100px]" />
+          <div className="absolute -bottom-32 -right-32 w-80 h-80 rounded-full bg-purple-600/10 blur-[100px]" />
+          {/* Dot grid */}
+          <div className="absolute inset-0 opacity-[0.025]"
+            style={{ backgroundImage: "radial-gradient(circle, #fff 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
         </div>
 
-        {/* Role Selector Toggle */}
-        <div className="flex p-1.5 bg-gray-100 dark:bg-slate-900/50 rounded-xl mb-8 border border-gray-200 dark:border-slate-700/50">
-          <button
-            onClick={() => setRole("user")}
-            className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-2 ${
-              role === "user"
-                ? "bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-400 shadow-sm border border-gray-200/50 dark:border-slate-600"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
-            }`}
-          >
-            <User className="h-4 w-4" />I want to ride
-          </button>
-          <button
-            onClick={() => setRole("captain")}
-            className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-2 ${
-              role === "captain"
-                ? "bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-400 shadow-sm border border-gray-200/50 dark:border-slate-600"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
-            }`}
-          >
-            <CarFront className="h-4 w-4" />I want to drive
-          </button>
+        {/* Logo */}
+        <div className="relative flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+            <Zap size={18} className="text-white" />
+          </div>
+          <span className="font-extrabold text-xl text-white tracking-tight">
+            UBER <span className="text-indigo-400">X</span>
+          </span>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Base User Details */}
-          <div className="space-y-5">
-            <div className="flex flex-col sm:flex-row gap-5">
-              <div className="space-y-1.5 w-full">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  First Name
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <User className="h-5 w-5 text-purple-400" />
-                  </div>
-                  <input
-                    name="firstName"
-                    type="text"
-                    required
-                    minLength={3}
-                    value={formData.firstName}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-2.5 border border-purple-100 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors bg-purple-50/30 dark:bg-slate-700/50 dark:text-white outline-none placeholder-gray-400"
-                    placeholder="First Name"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5 w-full">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Last Name
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <User className="h-5 w-5 text-purple-400" />
-                  </div>
-                  <input
-                    name="lastName"
-                    type="text"
-                    required
-                    minLength={3}
-                    value={formData.lastName}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-2.5 border border-purple-100 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors bg-purple-50/30 dark:bg-slate-700/50 dark:text-white outline-none placeholder-gray-400"
-                    placeholder="Last Name"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Email Address
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-purple-400" />
-                </div>
-                <input
-                  name="email"
-                  type="email"
-                  required
-                  value={formData.email}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2.5 border border-purple-100 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors bg-purple-50/30 dark:bg-slate-700/50 dark:text-white outline-none placeholder-gray-400"
-                  placeholder="name@example.com"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-purple-400" />
-                </div>
-                <input
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  required
-                  minLength={6}
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-12 py-2.5 border border-purple-100 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors bg-purple-50/30 dark:bg-slate-700/50 dark:text-white outline-none placeholder-gray-400"
-                  placeholder="Min. 6 characters"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-purple-600 transition-colors focus:outline-none"
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-5 w-5" />
-                  ) : (
-                    <Eye className="h-5 w-5" />
-                  )}
-                </button>
-              </div>
-            </div>
+        {/* Main copy */}
+        <div className="relative space-y-8">
+          <div>
+            <h2 className="text-3xl font-extrabold text-white leading-tight tracking-tight">
+              Your ride,<br />your way.
+            </h2>
+            <p className="text-slate-500 text-sm mt-3 leading-relaxed">
+              Join thousands of riders and captains on the platform built for speed, safety, and transparency.
+            </p>
           </div>
 
-          {/* Captain Specific Details - Conditionally Rendered */}
-          <div
-            className={`transition-all duration-500 overflow-hidden ${role === "captain" ? "max-h-125 opacity-100" : "max-h-0 opacity-0"}`}
-          >
-            <div className="pt-6 mt-2 border-t border-purple-100 dark:border-slate-700 space-y-5">
-              <div className="flex items-center gap-2 mb-2">
-                <ShieldCheck className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Vehicle Details
-                </h3>
+          {/* Trust items */}
+          <div className="space-y-3">
+            {TRUST.map(({ icon: Icon, color, bg, text }) => (
+              <div key={text} className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-xl ${bg} flex items-center justify-center shrink-0`}>
+                  <Icon size={14} className={color} />
+                </div>
+                <p className="text-sm text-slate-400 leading-snug">{text}</p>
               </div>
+            ))}
+          </div>
 
-              <div className="flex flex-col sm:flex-row gap-5">
-                {/* Vehicle Type */}
-                <div className="space-y-1.5 w-full">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Vehicle Type
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <CarFront className="h-5 w-5 text-purple-400" />
-                    </div>
-                    <select
-                      name="vehicleType"
-                      value={formData.vehicleType}
-                      onChange={handleChange}
-                      required={role === "captain"}
-                      className="w-full pl-10 pr-4 py-2.5 border border-purple-100 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors bg-purple-50/30 dark:bg-slate-700/50 dark:text-white outline-none appearance-none"
-                    >
+          {/* Social proof */}
+          <div className="flex items-center gap-3 pt-2">
+            <div className="flex -space-x-2">
+              {["#6366f1","#8b5cf6","#10b981","#f59e0b"].map((c) => (
+                <div key={c} className="w-7 h-7 rounded-full border-2 border-[#0d1018] flex items-center justify-center"
+                  style={{ background: `${c}33`, borderColor: "#0d1018" }}>
+                  <User size={11} style={{ color: c }} />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-slate-600">
+              <span className="text-slate-300 font-semibold">2,400+</span> rides completed this week
+            </p>
+          </div>
+        </div>
+
+        {/* Bottom fine print */}
+        <p className="relative text-xs text-slate-700">
+          Secure · Private · Always encrypted
+        </p>
+      </div>
+
+      {/* ══ RIGHT PANEL — form ════════════════════════════════════════════════ */}
+      <div className="flex-1 flex items-center justify-center p-6 py-12 relative overflow-hidden">
+
+        {/* Mobile ambient blobs */}
+        <div className="pointer-events-none lg:hidden absolute inset-0">
+          <div className="absolute -top-40 -left-40 w-[400px] h-[400px] rounded-full bg-indigo-600/10 blur-[120px]" />
+          <div className="absolute -bottom-40 -right-40 w-[400px] h-[400px] rounded-full bg-purple-600/8 blur-[120px]" />
+        </div>
+
+        <div className="relative w-full max-w-md">
+
+          {/* Mobile logo */}
+          <div className="lg:hidden flex items-center gap-2 mb-8">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+              <Zap size={16} className="text-white" />
+            </div>
+            <span className="font-extrabold text-lg text-white">UBER<span className="text-indigo-400">X</span></span>
+          </div>
+
+          {/* Heading */}
+          <div className="mb-7">
+            <h1 className="text-2xl font-extrabold text-white tracking-tight">Create your account</h1>
+            <p className="text-slate-600 text-sm mt-1">Takes less than 2 minutes.</p>
+          </div>
+
+          {/* ── Role toggle ── */}
+          <div className="flex p-1 bg-[#0d1018] rounded-2xl mb-7 border border-white/[0.06]">
+            {[
+              { id: "user",    icon: User,     label: "I want to ride" },
+              { id: "captain", icon: CarFront, label: "I want to drive" },
+            ].map(({ id, icon: Ic, label }) => (
+              <button key={id} type="button" onClick={() => setRole(id)}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${
+                  role === id
+                    ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-500/20"
+                    : "text-slate-600 hover:text-slate-400"
+                }`}>
+                <Ic size={14} />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Form ── */}
+          <form onSubmit={handleSubmit} className="space-y-4">
+
+            {/* Name */}
+            <div className="flex flex-col sm:flex-row gap-4">
+              <Field label="First Name" icon={User}>
+                <input name="firstName" type="text" required minLength={3}
+                  value={formData.firstName} onChange={handleChange}
+                  className={INPUT} placeholder="John" />
+              </Field>
+              <Field label="Last Name" icon={User}>
+                <input name="lastName" type="text" required minLength={3}
+                  value={formData.lastName} onChange={handleChange}
+                  className={INPUT} placeholder="Doe" />
+              </Field>
+            </div>
+
+            {/* Email */}
+            <Field label="Email" icon={Mail}>
+              <input name="email" type="email" required
+                value={formData.email} onChange={handleChange}
+                className={INPUT} placeholder="you@example.com" />
+            </Field>
+
+            {/* Password */}
+            <Field label="Password" icon={Lock}>
+              <input name="password" type={showPassword ? "text" : "password"}
+                required minLength={6}
+                value={formData.password} onChange={handleChange}
+                className={`${INPUT} pr-12`} placeholder="Min. 6 characters" />
+              <button type="button" onClick={() => setShowPassword((s) => !s)}
+                className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-600 hover:text-indigo-400 transition-colors">
+                {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </Field>
+
+            {/* ── Captain fields ── */}
+            <div className={`overflow-hidden transition-all duration-500 ease-in-out ${role === "captain" ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"}`}>
+              <div className="pt-5 space-y-4 border-t border-white/[0.06]">
+
+                {/* Section label */}
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-indigo-500/10 flex items-center justify-center">
+                    <ShieldCheck size={12} className="text-indigo-400" />
+                  </div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Vehicle Details</p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <Field label="Vehicle Type" icon={CarFront}>
+                    <select name="vehicleType" value={formData.vehicleType}
+                      onChange={handleChange} required={role === "captain"}
+                      className={SELECT}>
                       <option value="car">Car</option>
                       <option value="motorcycle">Motorcycle</option>
                       <option value="auto">Auto Rickshaw</option>
                     </select>
-                  </div>
+                  </Field>
+                  <Field label="Seats" icon={Users}>
+                    <input name="capacity" type="number" min="1"
+                      required={role === "captain"}
+                      value={formData.capacity} onChange={handleChange}
+                      className={INPUT} placeholder="4" />
+                  </Field>
                 </div>
 
-                {/* Capacity */}
-                <div className="space-y-1.5 w-full">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Capacity (Seats)
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Users className="h-5 w-5 text-purple-400" />
-                    </div>
-                    <input
-                      name="capacity"
-                      type="number"
-                      min="1"
-                      required={role === "captain"}
-                      value={formData.capacity}
-                      onChange={handleChange}
-                      className="w-full pl-10 pr-4 py-2.5 border border-purple-100 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors bg-purple-50/30 dark:bg-slate-700/50 dark:text-white outline-none"
-                      placeholder="e.g. 4"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-5">
-                {/* Color */}
-                <div className="space-y-1.5 w-full">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Vehicle Color
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Palette className="h-5 w-5 text-purple-400" />
-                    </div>
-                    <input
-                      name="color"
-                      type="text"
-                      required={role === "captain"}
-                      minLength={3}
-                      value={formData.color}
-                      onChange={handleChange}
-                      className="w-full pl-10 pr-4 py-2.5 border border-purple-100 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors bg-purple-50/30 dark:bg-slate-700/50 dark:text-white outline-none placeholder-gray-400"
-                      placeholder="e.g. White"
-                    />
-                  </div>
-                </div>
-
-                {/* Plate */}
-                <div className="space-y-1.5 w-full">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Plate Number
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Hash className="h-5 w-5 text-purple-400" />
-                    </div>
-                    <input
-                      name="plate"
-                      type="text"
-                      required={role === "captain"}
-                      minLength={3}
-                      value={formData.plate}
-                      onChange={handleChange}
-                      className="w-full pl-10 pr-4 py-2.5 border border-purple-100 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors bg-purple-50/30 dark:bg-slate-700/50 dark:text-white outline-none placeholder-gray-400 uppercase"
-                      placeholder="DL 01 AB 1234"
-                    />
-                  </div>
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <Field label="Vehicle Color" icon={Palette}>
+                    <input name="color" type="text" required={role === "captain"}
+                      minLength={3} value={formData.color} onChange={handleChange}
+                      className={INPUT} placeholder="White" />
+                  </Field>
+                  <Field label="Plate Number" icon={Hash}>
+                    <input name="plate" type="text" required={role === "captain"}
+                      minLength={3} value={formData.plate} onChange={handleChange}
+                      className={`${INPUT} uppercase`} placeholder="DL 01 AB 1234" />
+                  </Field>
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            className="w-full mt-4 bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-600 text-white font-medium py-3 rounded-xl transition-colors focus:ring-4 focus:ring-purple-200 dark:focus:ring-purple-900 shadow-md flex justify-center items-center gap-2"
-          >
-            {role === "captain" ? (
-              <>Register as Captain</>
-            ) : (
-              <>Register as Rider</>
-            )}
-          </button>
-        </form>
+            {/* Submit */}
+            <button type="submit" disabled={loading}
+              className="w-full mt-2 py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-sm font-bold transition-all duration-200 shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/35 active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+              {loading ? (
+                <>
+                  <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  Creating account…
+                </>
+              ) : (
+                <>
+                  Register as {role === "captain" ? "Captain" : "Rider"}
+                  <ArrowRight size={14} />
+                </>
+              )}
+            </button>
+          </form>
 
-        {/* Footer */}
-        <div className="mt-8 text-center text-sm text-gray-600 dark:text-gray-400">
-          Already registered?{" "}
-          <a
-            href="/login"
-            className="font-semibold text-blue-600 dark:text-blue-400 hover:text-purple-600 dark:hover:text-purple-300 transition-colors hover:underline"
-          >
-            Login here
-          </a>
+          {/* Footer */}
+          <p className="mt-6 text-center text-sm text-slate-700">
+            Already have an account?{" "}
+            <Link to="/login" className="font-bold text-indigo-400 hover:text-indigo-300 transition-colors">
+              Sign in
+            </Link>
+          </p>
+
+          <p className="mt-4 text-center text-xs text-slate-800">
+            By registering you agree to our Terms & Privacy Policy
+          </p>
         </div>
       </div>
     </div>

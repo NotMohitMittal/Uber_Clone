@@ -53,6 +53,8 @@ import {
   Bell as BellIcon,
   Award,
   Gift,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 
 import { useAuthStore } from "../context/UserContext";
@@ -296,6 +298,7 @@ import LiveTracking from "../components/LiveTracking";
 
 function LiveTracker() {
   const { captainLocation, rideDetails, userRideState } = useRideStore();
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const isLive = userRideState === "confirmed" || userRideState === "active";
 
   const captain     = rideDetails?.captain;
@@ -309,7 +312,7 @@ function LiveTracker() {
     : "?";
 
   return (
-    <div className="bg-[#1a1d27] border border-white/[0.07] rounded-2xl overflow-hidden">
+    <div className={`bg-[#1a1d27] border border-white/[0.07] rounded-2xl overflow-hidden transition-all duration-300 ${isFullscreen ? "fixed inset-0 z-[60] rounded-none border-0" : ""}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-5 pt-5 pb-3">
         <div>
@@ -318,26 +321,38 @@ function LiveTracker() {
             {isLive ? "Captain is on the way" : "Your live location · updates every 10s"}
           </p>
         </div>
-        <span className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full ${isLive ? "text-emerald-400 bg-emerald-500/10" : "text-indigo-400 bg-indigo-500/10"}`}>
-          <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${isLive ? "bg-emerald-400" : "bg-indigo-400"}`} />
-          {isLive ? "LIVE" : "GPS"}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full ${isLive ? "text-emerald-400 bg-emerald-500/10" : "text-indigo-400 bg-indigo-500/10"}`}>
+            <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${isLive ? "bg-emerald-400" : "bg-indigo-400"}`} />
+            {isLive ? "LIVE" : "GPS"}
+          </span>
+          <button
+            onClick={() => setIsFullscreen((f) => !f)}
+            className="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+            title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          >
+            {isFullscreen
+              ? <Minimize2 size={13} className="text-slate-400" />
+              : <Maximize2 size={13} className="text-slate-400" />
+            }
+          </button>
+        </div>
       </div>
 
-      {/* Map — always rendered, shows user location even when no active ride.
-          When a ride is confirmed/active, also renders captain's marker. */}
-      <div className="mx-5 mb-4" style={{ height: 220 }}>
+      {/* Map */}
+      <div className={isFullscreen ? "" : "mx-5 mb-4"} style={isFullscreen ? { height: "calc(100% - 60px)" } : { height: 220 }}>
         <LiveTracking
           mode="user_tracking"
           captainLocation={isLive ? captainLocation : null}
           updateIntervalMs={10000}
-          height={220}
+          height="100%"
           showControls={true}
+          allowFullscreen={false}
         />
       </div>
 
-      {/* Captain info strip — only shown when ride is confirmed/active */}
-      {isLive && (
+      {/* Captain info strip — only shown when ride is confirmed/active and not fullscreen */}
+      {isLive && !isFullscreen && (
         <div className="mx-5 mb-5 bg-[#0f1117] rounded-xl p-3 flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center font-bold text-white text-sm shrink-0">
             {initials}
@@ -362,8 +377,8 @@ function LiveTracker() {
         </div>
       )}
 
-      {/* Idle state info strip */}
-      {!isLive && (
+      {/* Idle state strip */}
+      {!isLive && !isFullscreen && (
         <div className="mx-5 mb-5 bg-[#0f1117] rounded-xl p-3 flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-indigo-500/10 flex items-center justify-center shrink-0">
             <Navigation size={15} className="text-indigo-400" />
@@ -373,6 +388,16 @@ function LiveTracker() {
             <p className="text-[10px] text-slate-500">Book a ride to track your captain here</p>
           </div>
         </div>
+      )}
+
+      {/* Fullscreen close button overlay */}
+      {isFullscreen && (
+        <button
+          onClick={() => setIsFullscreen(false)}
+          className="absolute top-4 right-4 z-10 w-9 h-9 bg-[#1a1d27]/90 backdrop-blur border border-white/10 rounded-xl flex items-center justify-center hover:bg-white/10 transition-colors"
+        >
+          <Minimize2 size={15} className="text-white" />
+        </button>
       )}
     </div>
   );

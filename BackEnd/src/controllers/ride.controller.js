@@ -1,6 +1,7 @@
-const { sendMessageToSocketId } = require("../../socket");
-const rideModel = require("../models/ride.model");
-const userModel = require("../models/user.model");
+const { sendMessageToSocketId, findSocketById } = require("../../socket");
+const rideModel    = require("../models/ride.model");
+const userModel    = require("../models/user.model");
+const captainModel = require("../models/captain.model");
 const {
   getCaptainsInTheRadius,
   getAddressCoordinate,
@@ -9,52 +10,40 @@ const {
 const { generateOtp, sendRideOtpEmail } = require("../utils/util");
 
 // ── getFare ───────────────────────────────────────────────────────────────────
-// Expects distanceKm (kilometres) and durationMin (minutes).
-// Returns fares for all vehicle types.
 const getFare = (distanceKm, durationMin) => {
   const fareConfig = {
     car:        { baseFare: 60,  perKm: 18, perMinute: 2.5 },
     auto:       { baseFare: 35,  perKm: 11, perMinute: 1.5 },
     motorcycle: { baseFare: 25,  perKm: 8,  perMinute: 1   },
   };
-
-  const calculatedFares = {};
-
-  for (const vehicle in fareConfig) {
-    const config = fareConfig[vehicle];
-    const totalFare =
-      config.baseFare +
-      distanceKm  * config.perKm +
-      durationMin * config.perMinute;
-    calculatedFares[vehicle] = Math.round(totalFare);
+  const result = {};
+  for (const v in fareConfig) {
+    const c = fareConfig[v];
+    result[v] = Math.round(c.baseFare + distanceKm * c.perKm + durationMin * c.perMinute);
   }
-
-  return calculatedFares;
+  return result;
 };
 
 // ── createRide ────────────────────────────────────────────────────────────────
+// KEY FIX: respond to the user as soon as the ride document is created.
+// Captain search, socket emissions, and OTP email all happen AFTER the response
+// is sent so the user sees the "searching" UI immediately instead of waiting
+// 2-5 seconds for Google APIs + email.
 const createRide = async (req, res) => {
   const { pickup, destination, vehicleType } = req.body;
 
   try {
-    // Google Distance Matrix → metres & seconds → convert to km & minutes
     const distanceTimeData = await getDistanceTime(pickup, destination);
-    const distanceKm  = distanceTimeData.distance.value / 1000; // m  → km
-    const durationMin = distanceTimeData.duration.value / 60;   // s  → min
+    const distanceKm  = distanceTimeData.distance.value / 1000;
+    const durationMin = distanceTimeData.duration.value / 60;
 
     const allFares = getFare(distanceKm, durationMin);
     const fare     = allFares[vehicleType];
 
-    console.log("createRide fares:", allFares, "selected:", vehicleType, fare);
-
-    if (!fare) {
-      return res.status(400).json({ message: "Invalid vehicle type" });
-    }
+    if (!fare) return res.status(400).json({ message: "Invalid vehicle type" });
 
     const user = await userModel.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
+    if (!user)  return res.status(404).json({ message: "User not found" });
 
     const otp = generateOtp();
 
@@ -63,68 +52,72 @@ const createRide = async (req, res) => {
       pickup,
       destination,
       fare,
-      distance: distanceTimeData.distance.value, // store raw metres
-      duration: distanceTimeData.duration.value, // store raw seconds
+      distance: distanceTimeData.distance.value,
+      duration: distanceTimeData.duration.value,
       otp,
     });
 
-    const pickupCoordinates = await getAddressCoordinate(pickup);
-    const captainsInRange   = await getCaptainsInTheRadius(
-      pickupCoordinates.lat,
-      pickupCoordinates.lng,
-      1000, // radius in km
-    );
-
-    console.log("Captains in range:", captainsInRange.length);
-
     const rideWithUser = await rideModel.findById(ride._id).populate("user");
 
-    captainsInRange.forEach((captain) => {
-      if (captain.socketId) {
-        sendMessageToSocketId(captain.socketId, {
-          event: "new-ride",
-          data: rideWithUser,
+    // ── Respond immediately — user sees the searching screen right away ──────
+    res.status(201).json({ message: "New ride created", ride: rideWithUser });
+
+    // ── Everything below is fire-and-forget — runs after response is sent ────
+    // Captain search + socket notifications run in the background.
+    // If any of these fail, the ride is already created and the user is already
+    // in the searching state — they can wait for a retry or cancel.
+    (async () => {
+      try {
+        const pickupCoords  = await getAddressCoordinate(pickup);
+        const captainsInRange = await getCaptainsInTheRadius(
+          pickupCoords.lat,
+          pickupCoords.lng,
+          1000, // km radius
+        );
+
+        console.log("Captains in range:", captainsInRange.length);
+
+        captainsInRange.forEach((captain) => {
+          if (captain.socketId) {
+            sendMessageToSocketId(captain.socketId, {
+              event: "new-ride",
+              data:  rideWithUser,
+            });
+          }
         });
+      } catch (err) {
+        console.error("Captain search/notify error (non-fatal):", err.message);
       }
-    });
 
-    await sendRideOtpEmail(user.email, otp);
+      try {
+        await sendRideOtpEmail(user.email, otp);
+      } catch (err) {
+        console.error("OTP email error (non-fatal):", err.message);
+      }
+    })();
 
-    res.status(201).json({
-      message: "New ride created",
-      ride: rideWithUser,
-    });
   } catch (error) {
     console.error("Ride creation error:", error);
-    res.status(500).json({ message: "Database error" });
+    // Only reaches here if the DB create or initial distanceTime call failed
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Database error" });
+    }
   }
 };
 
 // ── getRideFare ───────────────────────────────────────────────────────────────
-// Query params: distance (metres), duration (seconds)
-// Converts to km / minutes before calling getFare so the math is always correct.
 const getRideFare = async (req, res) => {
   const { distance, duration } = req.query;
-
-  // The client sends raw Google Maps values (metres & seconds).
-  // Convert here so getFare always receives km and minutes.
   const distanceKm  = parseFloat(distance) / 1000;
-  const durationMin = parseFloat(duration) / 60;
-
-  console.log("getRideFare input (raw):", distance, duration);
-  console.log("getRideFare converted:", distanceKm, "km /", durationMin, "min");
-
-  const farePrice = getFare(distanceKm, durationMin);
-
-  console.log("farePrice:", farePrice);
-
-  return res.status(200).json({
-    message: "Ride fare fetched",
-    farePrice,
-  });
+  const durationMin = parseFloat(duration)  / 60;
+  const farePrice   = getFare(distanceKm, durationMin);
+  return res.status(200).json({ message: "Ride fare fetched", farePrice });
 };
 
 // ── acceptRide ────────────────────────────────────────────────────────────────
+// BUG FIX: returnDocument:"after" is a MongoDB driver option, NOT a Mongoose
+// option. Mongoose uses `new: true`. Using the wrong option returns the OLD
+// document (without captain populated), so rideWithUser.captain was always null.
 const acceptRide = async (req, res) => {
   const { rideId } = req.body;
   if (!rideId) return res.status(400).json({ message: "rideId is required" });
@@ -136,18 +129,30 @@ const acceptRide = async (req, res) => {
       .findByIdAndUpdate(
         rideId,
         { status: "accepted", captain: captainId },
-        { returnDocument: "after" },
+        { new: true },          
       )
       .populate("user")
       .populate("captain");
 
     if (!ride) return res.status(404).json({ message: "Ride not found" });
 
+    // Notify the user their ride was accepted
     if (ride.user?.socketId) {
       sendMessageToSocketId(ride.user.socketId, {
         event: "ride-accepted",
-        data: ride,
+        data:  ride,
       });
+    }
+
+    // Put both sockets into the ride room for subsequent location broadcasts
+    const captainDoc = await captainModel.findById(captainId);
+    if (captainDoc?.socketId) {
+      const captainSocket = findSocketById(captainDoc.socketId);
+      if (captainSocket) captainSocket.join(`ride:${rideId}`);
+    }
+    if (ride.user?.socketId) {
+      const userSocket = findSocketById(ride.user.socketId);
+      if (userSocket) userSocket.join(`ride:${rideId}`);
     }
 
     return res.status(200).json({ message: "Ride accepted", ride });
@@ -158,13 +163,14 @@ const acceptRide = async (req, res) => {
 };
 
 // ── startTrip ─────────────────────────────────────────────────────────────────
+// BUG FIX: same returnDocument → new:true fix
 const startTrip = async (req, res) => {
   const { rideId } = req.body;
   if (!rideId) return res.status(400).json({ message: "rideId is required" });
 
   try {
     const ride = await rideModel
-      .findByIdAndUpdate(rideId, { status: "ongoing" }, { returnDocument: "after" })
+      .findByIdAndUpdate(rideId, { status: "ongoing" }, { new: true })
       .populate("user");
 
     if (!ride) return res.status(404).json({ message: "Ride not found" });
@@ -172,7 +178,7 @@ const startTrip = async (req, res) => {
     if (ride.user?.socketId) {
       sendMessageToSocketId(ride.user.socketId, {
         event: "trip-started",
-        data: ride,
+        data:  ride,
       });
     }
 
@@ -198,7 +204,7 @@ const completeTrip = async (req, res) => {
     if (ride.user?.socketId) {
       sendMessageToSocketId(ride.user.socketId, {
         event: "trip-completed",
-        data: ride,
+        data:  ride,
       });
     }
 
@@ -209,10 +215,4 @@ const completeTrip = async (req, res) => {
   }
 };
 
-module.exports = {
-  createRide,
-  getRideFare,
-  acceptRide,
-  startTrip,
-  completeTrip,
-};
+module.exports = { createRide, getRideFare, acceptRide, startTrip, completeTrip };
